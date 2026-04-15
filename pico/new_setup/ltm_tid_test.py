@@ -36,11 +36,18 @@ def parse_args():
             shared.raw_adc = True
         elif arg == '--calibrated-adc':
             shared.raw_adc = False
+        elif arg.startswith('--mb'):
+            # Handle MB argument: --mb1, --mb2, etc.
+            try:
+                mb_num = int(arg[4:])  # Extract number after --mb
+                shared.set_mb_calibration(mb_num)
+            except (ValueError, IndexError):
+                print("Warning: Invalid MB format, using default MB0")
         elif arg == '--help' or arg == '-h':
             print_help()
             return  # Exit function instead of sys.exit
     
-    print(f"Settings: Watchdog={'ON' if WATCHDOG_ENABLED else 'OFF'}, PSU={'ON' if PSU_ON else 'OFF'}, Raw ADC={'ON' if shared.raw_adc else 'OFF'}")
+    print(f"Settings: Watchdog={'ON' if WATCHDOG_ENABLED else 'OFF'}, PSU={'ON' if PSU_ON else 'OFF'}, Raw ADC={'ON' if shared.raw_adc else 'OFF'}, MB={shared.mb_number}")
 
 def print_help():
     """Print help message"""
@@ -54,6 +61,7 @@ def print_help():
     print("  --psu-off           Disable power supply on startup")
     print("  --raw-adc           Output raw ADC values (default)")
     print("  --calibrated-adc    Output calibrated voltage values")
+    print("  --mb1, --mb2, etc.  Select motherboard calibration (default: --mb1)")
     print("  --help, -h          Show this help message")
 
 # Parse arguments

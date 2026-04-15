@@ -32,6 +32,42 @@ stop_data_task = False
 # -------------------------
 raw_adc = False  # When True, print raw ADC values without calibration
 
+# -------------------------
+# MB CALIBRATION CONTROL
+# -------------------------
+mb_number = 0  # Default MB number (can be changed via arguments)
+
+# MB calibration factors for different motherboards
+mb_calibration_factors = {
+    0: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+        1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+        1.0],
+    1: [1.0, 1.0, 0.3571428571, 1.0, 1.0, 1.0, 0.2265005663, 0.2242152466, 0.1984126984, 1.0, 1.0, 0.2751031637, 1.0,
+        0.2178649237, 1.0, 1.0, 1.0, 0.2127659574, 1.0, 1.0, 1.0, 1.0, 0.3189792663, 0.1926782274, 1.0, 0.2259887006,
+        1.0],
+    2: [1.0, 1.0, 0.4282655246, 1.0, 1.0, 1.0, 0.283286119, 0.2617801047, 0.245398773, 1.0, 1.0, 0.3120124805, 1.0,
+        0.2614379085, 1.0, 1.0, 1.0, 0.2577319588, 1.0, 1.0, 1.0, 1.0, 0.3773584906, 0.2398081535, 1.0, 0.2789400279,
+        1.0],
+    # Add more MB calibration arrays here as needed
+    # 2: cal_mb2,
+    # 3: cal_mb3,
+}
+
+# Current MB calibration factor array (will be set based on mb_number)
+mb_cal_factor = mb_calibration_factors[mb_number]
+
+def set_mb_calibration(mb_num):
+    """Update the MB calibration factor based on MB number"""
+    global mb_number, mb_cal_factor
+    if mb_num in mb_calibration_factors:
+        mb_number = mb_num
+        mb_cal_factor = mb_calibration_factors[mb_num]
+        print(f"MB calibration set to MB{mb_num}")
+    else:
+        print(f"Warning: MB{mb_num} calibration not found, using default MB0")
+        mb_number = 0
+        mb_cal_factor = mb_calibration_factors[0]
+
 
 # -------------------------
 # HARDWARE CONFIG
@@ -67,7 +103,7 @@ adc_cal = adc_reference_voltage / adc_resolution
 
 pg_x_cal = 47000. / (47000. + 47000.)
 v_x_cal = 1000. / (1000. + 1000.)
-v_12v_cal = 3300. / (3300. + 8200.)
+v_12v_cal = 3300. / (3300. + 15000.)
 c_x_cal = 0.002* (12000./100.)
 
 # IMPORTANT: numeric only (NO STRINGS)
@@ -76,6 +112,8 @@ output_adc_value_v_calibration_factor = [
     c_x_cal, v_x_cal, v_12v_cal, v_x_cal, c_x_cal, v_x_cal, pg_x_cal, pg_x_cal, v_x_cal, c_x_cal, c_x_cal, v_x_cal, c_x_cal,
     pg_x_cal
 ]
+
+
 
 
 channel_label = [

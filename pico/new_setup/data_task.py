@@ -84,8 +84,9 @@ def run():
 
             cal = shared.adc_cal
             factor = 1.0 / shared.output_adc_value_v_calibration_factor[i]
+            mb_cal_factor = shared.mb_cal_factor[i]
 
-            local_v[i] = avg * cal * factor
+            local_v[i] = avg * cal * factor * mb_cal_factor
 
         # -------------------------
         # COMMIT

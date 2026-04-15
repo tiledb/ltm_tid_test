@@ -1,4 +1,5 @@
+python3 pico_repl_com_v6.py --port /dev/ttyACM0 --lib-folder ../pico/new_setup/ --script ../pico/new_setup/ltm_tid_test.py --data-folder ../data --filename pirotest_mb2 --script-args "--watchdog-disable --psu-on --calibrated-adc --mb1"
+
+python3 pico_repl_com_v6.py --port /dev/ttyACM0 --lib-folder ../pico/new_setup/ --script ../pico/new_setup/ltm_tid_test.py --data-folder ../data --filename pirotest --script-args "--watchdog-disable --psu-on --calibrated-adc"
+
 python3 pico_repl_com_v6.py --port /dev/ttyACM0 --lib-folder ../pico/new_setup/ --script ../pico/new_setup/ltm_tid_test.py --data-folder ../data --filename pirotest
-
-
-python3 pico_repl_com_v6.py --script my_script.py --script-args "--arg1 value1 --arg2 'quoted value'"
