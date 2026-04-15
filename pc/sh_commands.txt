@@ -1,3 +1,4 @@
-python3 pico_repl_com_v4.py --port /dev/ttyACM0 --lib-folder ../pico/ --script ../pico/test_tid_mosfets.py --filename pirotest
+python3 pico_repl_com_v6.py --port /dev/ttyACM0 --lib-folder ../pico/new_setup/ --script ../pico/new_setup/ltm_tid_test.py --data-folder ../data --filename pirotest
 
 
+python3 pico_repl_com_v6.py --script my_script.py --script-args "--arg1 value1 --arg2 'quoted value'"

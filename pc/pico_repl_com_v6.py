@@ -137,10 +137,54 @@ def list_files_on_pico(ser, log_file, path="/"):
     except Exception as e:
         log_and_print(log_file, f"[ERROR] Failed to parse file list output: {e}\n")
 
-def run_script(ser, script_name, log_file):
+def run_script(ser, script_name, log_file, script_args=""):
+    """
+    Run a script on the Pico and monitor output.
+    
+    Key forwarding: Only 't' and 'f' keys are forwarded to the Pico.
+    This allows limited interaction while preventing accidental key presses
+    from interfering with the running script.
+    
+    Args:
+        ser: Serial connection to Pico
+        script_name: Name of script file to run
+        log_file: Path to log file for output
+        script_args: Arguments to pass to the script
+    """
     log_and_print(log_file, f"[INFO] Running script '{script_name}'... (Press Ctrl+C to stop)\n")
-    code = f"exec(open('{script_name}').read())\n"
-    send_raw_code(ser, code)
+    if script_args:
+        log_and_print(log_file, f"[INFO] Script arguments: {script_args}\n")
+    log_and_print(log_file, "[INFO] Key forwarding enabled: 't' and 'f' keys will be sent to Pico\n")
+    
+    # Create a global variable for script arguments (MicroPython compatible)
+    setup_code = "import sys\n"
+    if script_args:
+        # Simple argument parsing - split by spaces
+        args_list = script_args.split()
+        escaped_args = []
+        for arg in args_list:
+            # Escape single quotes in arguments
+            escaped_arg = arg.replace("'", "\\'")
+            escaped_args.append(f"'{escaped_arg}'")
+        setup_code += f"script_args = [{', '.join(escaped_args)}]\n"
+    else:
+        setup_code += "script_args = []\n"
+    
+    # Execute the script with the arguments
+    code = setup_code + f"exec(open('{script_name}').read())\n"
+    
+    # Debug: print the code being sent
+    log_and_print(log_file, f"[DEBUG] Executing code: {repr(code)}\n")
+    
+    # Send code without waiting for OK (for continuous scripts)
+    while ser.in_waiting:
+        ser.read(ser.in_waiting)
+    
+    ser.write(code.encode('utf-8'))
+    ser.write(CTRL_D)  # Ctrl-D to execute
+    
+    # Wait a moment for any initial response
+    time.sleep(0.5)
 
     try:
         while True:
@@ -150,6 +194,7 @@ def run_script(ser, script_name, log_file):
                 log_and_print(log_file, out)
                 time.sleep(0.01)
             # ---- forward keyboard to Pico ----
+            # Only forward 't' and 'f' keys to prevent accidental interference
             if select.select([sys.stdin], [], [], 0)[0]:
                 key = sys.stdin.read(1)
                 if key in ('t', 'f'):
@@ -179,12 +224,19 @@ def main():
     parser.add_argument('--lib-folder', default="lib", help="Folder containing library files (default: 'lib').")
     parser.add_argument('--script', required=False, help="Main script to run (e.g., 'main.py').")
     parser.add_argument('--filename', required=False, help="Suffix for log file (e.g., 'batch_01').")
+    parser.add_argument('--data-folder', default="../data", help="Folder where data would be stored (default: '../data').")
+    parser.add_argument('--script-args', default="", help="Arguments to pass to the script (e.g., '--arg1 value1 --arg2 value2')")
     parser.add_argument('-m', '--monitor', action='store_true', help="Monitor the raw REPL without running or resetting the Pico.")
     args = parser.parse_args()
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     filename_suffix = args.filename or "noname"
-    log_file = f"log_{timestamp}_{filename_suffix}.csv"
+    
+    # Create data folder if it doesn't exist
+    import os
+    os.makedirs(args.data_folder, exist_ok=True)
+    
+    log_file = os.path.join(args.data_folder, f"log_{timestamp}_{filename_suffix}.csv")
 
     port = args.port or auto_detect_port()
     if not port:
@@ -196,11 +248,6 @@ def main():
             time.sleep(2)  # wait for device
             
             # Enter raw REPL for both modes
-            # ser.write(b'\r' + CTRL_C*2)  # interrupt any running program
-            # time.sleep(0.1)
-            # ser.write(b'\r' + CTRL_A)    # enter raw REPL
-            # time.sleep(0.1)
-            # wait_for(ser, b'raw REPL; CTRL-B to exit\r\n>')
             
             if args.monitor:
                 log_and_print(log_file, "[INFO] Monitoring raw REPL (no upload or run)... Press Ctrl+C to exit.\n")
@@ -252,7 +299,7 @@ def main():
                 upload_file(ser, args.script, os.path.basename(args.script), log_file)
 
                 # Run the uploaded main script by its filename
-                run_script(ser, os.path.basename(args.script), log_file)
+                run_script(ser, os.path.basename(args.script), log_file, args.script_args)
 
                 exit_raw_repl(ser)
 

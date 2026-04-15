@@ -1,111 +1,117 @@
 import time
 import shared
-from machine import Pin, SPI, I2C
+
+from machine import Pin, SPI
 import sys
 import uselect
 
-poller = uselect.poll()
-poller.register(sys.stdin, uselect.POLLIN)
-
-def usb_connected():
-    events = poller.poll(0)
-    return bool(events)
-
-
-# Import your drivers (make sure they are on the Pico)
 from cd74hc4067_driver import CD74HC4067
 from mcp3208_driver import MCP3208
 
 
-# Initialize the MUX (CD74HC4067)
+# -------------------------
+# USB check (optional)
+# -------------------------
+poller = uselect.poll()
+poller.register(sys.stdin, uselect.POLLIN)
+
+
 mux = CD74HC4067(s0=26, s1=22, s2=27, s3=28)
 
-# Initialize the ADC (MCP3208)
 spi_adc = SPI(1, baudrate=100000, polarity=0, phase=0,
-             sck=Pin(14), mosi=Pin(15), miso=Pin(12))
-# cs_adc = Pin(13, Pin.OUT)
-adc = MCP3208(spi_adc, cs_adc)
+              sck=Pin(14), mosi=Pin(15), miso=Pin(12))
+
+adc = MCP3208(spi_adc,cs_pin=Pin(8))
 
 
-first_row, mux_row, adc_row, channel_label_row, info_row = "", "", "", "", ""
+mux_settle_ms = 50
+adc_samples = 5
+adc_settle_ms = 5
+
+
 iteration = 0
 max_iterations = 10
 
-mux_settle_ms = 50  # time to wait after changing MUX channel
-adc_samples = 5   # choose how many samples to average
-adc_settle_ms = 5   # small delay between samples (adjust if needed)
 
 def print_header():
     shared.nprint(shared.delimiter_line)
-    global first_row, mux_row, adc_row, channel_label_row, info_row
 
-
+    header = ""
     for i in range(shared.nr_of_channels):
-        first_row += f"ch_{shared.channel_label[i]}\t"
-        mux_row += f"mux_ch_{shared.mux_ch[i]}\t"
-        adc_row += f"adc_ch_{shared.output_adc_ch[i]}\t"
-        channel_label_row += f"{shared.channel_label[i]}\t"
-        info_row += f"{shared.channel_label[i]}_adc[{shared.output_adc_ch[i]}]_mux[{shared.mux_ch[i]}]\t"
-        
-    # first_row += "\t|||\t\t"
-  
-    shared.nprint(info_row)
-    shared.nprint(first_row)
+        header += f"{shared.channel_label[i]}\t"
 
+    shared.nprint(header)
 
 
 def run():
+
     global iteration
     print_header()
-    while True:
-        # ---- Local working buffers (NO LOCK) ----
+
+    while not shared.stop_data_task:
+
         local_adc = [0] * shared.nr_of_channels
-        local_adc_avg = [0] * shared.nr_of_channels
+        local_avg = [0] * shared.nr_of_channels
         local_v = [0.0] * shared.nr_of_channels
 
-        # ---- ADC acquisition (NO LOCK) ----
+        # -------------------------
+        # ACQUISITION LOOP
+        # -------------------------
         for i in range(shared.nr_of_channels):
+
+            if shared.stop_data_task:
+                break
+
             mux.select_channel(shared.mux_ch[i])
             time.sleep_ms(mux_settle_ms)
 
             acc = 0
+            last = 0
+
             for _ in range(adc_samples):
-                val = adc.read_channel_raw(shared.output_adc_ch[i])
-                acc += val
+
+                if shared.stop_data_task:
+                    break
+
+                last = adc.read_channel_raw(shared.output_adc_ch[i])
+                acc += last
                 time.sleep_ms(adc_settle_ms)
 
             avg = acc // adc_samples
-            local_adc[i] = val
-            local_adc_avg[i] = avg
-            local_v[i] = (
-                avg *
-                shared.adc_cal *
-                shared.output_adc_value_v_calibration_factor[i]
-            )
 
-        # ---- Commit results atomically ----
+            local_adc[i] = avg
+            local_avg[i] = avg
+
+            cal = shared.adc_cal
+            factor = 1.0 / shared.output_adc_value_v_calibration_factor[i]
+
+            local_v[i] = avg * cal * factor
+
+        # -------------------------
+        # COMMIT
+        # -------------------------
         shared.data_lock.acquire()
+
         for i in range(shared.nr_of_channels):
             shared.output_adc_value[i] = local_adc[i]
-            shared.output_adc_value_avg[i] = local_adc_avg[i]
+            shared.output_adc_value_avg[i] = local_avg[i]
             shared.output_adc_value_v[i] = local_v[i]
+
         shared.data_lock.release()
 
-        # ---- Printing (NO LOCK) ----
-        if iteration < max_iterations:
-            iteration += 1
+        # -------------------------
+        # PRINT
+        # -------------------------
+        row = ""
+        if shared.raw_adc:
+            # Print raw ADC values without calibration
+            for i in range(shared.nr_of_channels):
+                row += f"{local_adc[i]}\t"
         else:
-            iteration = 0
-            shared.nprint(channel_label_row)
+            # Print calibrated voltage values
+            for i in range(shared.nr_of_channels):
+                row += f"{local_v[i]:.2f}\t"
 
-        row_adc = ""
-        row_v = ""
-        for i in range(shared.nr_of_channels):
-            row_adc += f"{local_adc[i]}\t"
-            row_v += f"{local_v[i]:.3f}V\t"
-
-        shared.nprint(row_adc)
-        shared.cprint(row_v)
+        shared.nprint(row)
 
         time.sleep(0.5)
-

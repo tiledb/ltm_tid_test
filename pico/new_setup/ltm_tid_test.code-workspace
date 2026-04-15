@@ -2,11 +2,9 @@
 	"folders": [
 		{
 			"path": "../.."
-		},
-		{
-			"name": "Mpy Remote Workspace",
-			"uri": "pico:"
 		}
 	],
-	"settings": {}
+	"settings": {
+		"micropico.syncFolder": "pico/new_setup"
+	}
 }

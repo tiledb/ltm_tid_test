@@ -58,50 +58,40 @@ class atxpsu:
 
     def power_on(self):
         """Turn ON the ATX power supply"""
-        if not self._state:
-            # Apply polarity to determine correct GPIO level
-            gpio_level = self._get_ps_on_state(True)
-            self.ps_on.value(gpio_level)
-            self._state = True
-            time.sleep_ms(self.delay_ms)
-            
-            polarity_status = " (inverted polarity)" if self.invert_polarity else ""
-            print(f"ATX Power Supply: ON{polarity_status}")
-            
-            if self.power_good:
-                # Wait for power good signal with timeout
-                timeout = 5000  # 5 second timeout
-                start_time = time.ticks_ms()
-                while time.ticks_diff(time.ticks_ms(), start_time) < timeout:
-                    raw_value = self.power_good.value()
-                    power_good_state = self._get_power_good_state(raw_value)
-                    
-                    if power_good_state:
-                        print("Power Good signal detected")
-                        return True
-                    time.sleep_ms(100)
-                print("Warning: Power Good signal not detected within timeout")
-                return False
-            return True
-        else:
-            print("ATX Power Supply is already ON")
-            return True
+        gpio_level = self._get_ps_on_state(True)
+        self.ps_on.value(gpio_level)
+        self._state = True
+        time.sleep_ms(self.delay_ms)
+        
+        polarity_status = " (inverted polarity)" if self.invert_polarity else ""
+        print(f"ATX Power Supply: ON{polarity_status}")
+        
+        if self.power_good:
+            # Wait for power good signal with timeout
+            timeout = 5000  # 5 second timeout
+            start_time = time.ticks_ms()
+            while time.ticks_diff(time.ticks_ms(), start_time) < timeout:
+                raw_value = self.power_good.value()
+                power_good_state = self._get_power_good_state(raw_value)
+                
+                if power_good_state:
+                    print("Power Good signal detected")
+                    return True
+                time.sleep_ms(100)
+            print("Warning: Power Good signal not detected within timeout")
+            return False
+        return True
 
     def power_off(self):
-        """Turn OFF the ATX power supply"""
-        if self._state:
-            # Apply polarity to determine correct GPIO level
-            gpio_level = self._get_ps_on_state(False)
-            self.ps_on.value(gpio_level)
-            self._state = False
-            time.sleep_ms(self.delay_ms)
-            
-            polarity_status = " (inverted polarity)" if self.invert_polarity else ""
-            print(f"ATX Power Supply: OFF{polarity_status}")
-            return True
-        else:
-            print("ATX Power Supply is already OFF")
-            return True
+        # Apply polarity to determine correct GPIO level
+        gpio_level = self._get_ps_on_state(False)
+        self.ps_on.value(gpio_level)
+        self._state = False
+        time.sleep_ms(self.delay_ms)
+        
+        polarity_status = " (inverted polarity)" if self.invert_polarity else ""
+        print(f"ATX Power Supply: OFF{polarity_status}")
+        return True
 
     def toggle(self):
         """Toggle power state"""
