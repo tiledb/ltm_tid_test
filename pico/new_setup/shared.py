@@ -140,13 +140,13 @@ def update_atx_power_state(current_time):
         if elapsed >= config["atx_on"]:
             atx_power_state = False
             atx_timer_start = current_time
-            cprint("ATX power OFF")
+            # cprint("ATX power OFF")
     else:
         # ATX is currently OFF, check if it's time to turn ON
         if elapsed >= config["atx_off"]:
             atx_power_state = True
             atx_timer_start = current_time
-            cprint("ATX power ON")
+            # cprint("ATX power ON")
     
     return atx_power_state
 

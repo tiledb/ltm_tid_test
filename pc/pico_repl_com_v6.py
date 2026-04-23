@@ -232,6 +232,21 @@ def main():
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     filename_suffix = args.filename or "noname"
     
+    # Extract MB number from script-args
+    mb_suffix = "_mbunknown"
+    if args.script_args:
+        for arg in args.script_args.split():
+            if arg.startswith('--mb'):
+                try:
+                    mb_num = arg[4:]  # Extract number after --mb
+                    mb_suffix = f"_mb{mb_num}"
+                    break
+                except IndexError:
+                    break
+    
+    # Append MB suffix to filename
+    filename_suffix += mb_suffix
+    
     # Create data folder if it doesn't exist
     import os
     os.makedirs(args.data_folder, exist_ok=True)
