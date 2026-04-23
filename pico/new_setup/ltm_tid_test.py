@@ -128,16 +128,31 @@ def stop_thread():
 # -------------------------
 start_thread()
 
+# Initialize power control
+current_time = time.time()
+shared.initialize_power_control(current_time)
+
 try:
     while True:
-
-        ltm.all_on()
+        current_time = time.time()
+        
+        # Update power states
+        atx_on = shared.update_atx_power_state(current_time)
+        ltm_on = shared.update_ltm_power_state(current_time)
+        
+        # Control hardware based on power states
+        if atx_on:
+            psu.power_on()
+            if ltm_on:
+                ltm.all_on()
+            else:
+                ltm.all_off()
+        else:
+            psu.power_off()
+            ltm.all_off()
+        
         feed_wdt()
-        time.sleep(10)
-
-        # ltm.all_off()
-        # feed_wdt()
-        # time.sleep(2)
+        time.sleep(0.1)  # Faster update for better timing control
 
 except KeyboardInterrupt:
     print("CTRL+C -> stopping")

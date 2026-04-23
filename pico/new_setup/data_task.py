@@ -37,6 +37,9 @@ def print_header():
     shared.nprint(shared.delimiter_line)
 
     header = ""
+    # Add power status columns at the beginning
+    header += "ATX_STATE\tLTM_STATE\t"
+    
     for i in range(shared.nr_of_channels):
         header += f"{shared.channel_label[i]}\t"
 
@@ -104,6 +107,12 @@ def run():
         # PRINT
         # -------------------------
         row = ""
+        
+        # Add power status values at the beginning
+        atx_status = "ON" if shared.atx_power_state else "OFF"
+        ltm_status = "ON" if shared.ltm_power_state else "OFF"
+        row += f"{atx_status}\t{ltm_status}\t"
+        
         if shared.raw_adc:
             # Print raw ADC values without calibration
             for i in range(shared.nr_of_channels):
