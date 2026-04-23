@@ -154,11 +154,12 @@ class LivePlotHandler(SimpleHTTPRequestHandler):
 class CSVFileHandler(FileSystemEventHandler):
     """Handle CSV file changes for live monitoring."""
     
-    def __init__(self, callback):
+    def __init__(self, callback, target_file):
         self.callback = callback
+        self.target_file = os.path.abspath(target_file)
         
     def on_modified(self, event):
-        if event.src_path.endswith('.csv'):
+        if event.src_path.endswith('.csv') and os.path.abspath(event.src_path) == self.target_file:
             print(f"File updated: {event.src_path}")
             self.callback(event.src_path)
 
@@ -220,9 +221,21 @@ def categorize_columns(columns):
     return current_cols, voltage_cols, pgood_cols
 
 
-def create_time_series_plot(df, time_col, data_cols, title, yaxis_title, dose_rate=None, num_ticks=10, ymin=None, ymax=None):
+def create_time_series_plot(df, time_col, data_cols, title, yaxis_title, dose_rate=None, num_ticks=10, ymin=None, ymax=None, max_points=None):
     if not data_cols:
         return None
+
+    # Limit data points if max_points is specified
+    if max_points is not None and len(df) > max_points:
+        # Calculate step size to get evenly distributed points including first and last
+        step = max(1, (len(df) - 1) // (max_points - 1))
+        # Take first point, then every step-th point, ensuring we include the last point
+        indices = list(range(0, len(df), step))
+        if indices[-1] != len(df) - 1:
+            indices.append(len(df) - 1)
+        df_limited = df.iloc[indices]
+    else:
+        df_limited = df
 
     fig = go.Figure()
 
@@ -230,8 +243,8 @@ def create_time_series_plot(df, time_col, data_cols, title, yaxis_title, dose_ra
 
     for i, col in enumerate(data_cols):
         fig.add_trace(go.Scatter(
-            x=df[time_col],
-            y=df[col],
+            x=df_limited[time_col],
+            y=df_limited[col],
             mode='lines+markers',
             name=col,
             line=dict(color=colors[i % len(colors)], width=3),
@@ -239,7 +252,7 @@ def create_time_series_plot(df, time_col, data_cols, title, yaxis_title, dose_ra
         ))
 
     # --- ticks ---
-    tmin, tmax = df[time_col].min(), df[time_col].max()
+    tmin, tmax = df_limited[time_col].min(), df_limited[time_col].max()
 
     time_ticks = [
         tmin + (tmax - tmin) * i / (num_ticks - 1)
@@ -254,8 +267,8 @@ def create_time_series_plot(df, time_col, data_cols, title, yaxis_title, dose_ra
 
         # ✅ Dummy trace (required to force axis rendering)
         fig.add_trace(go.Scatter(
-            x=df[time_col],
-            y=[None] * len(df),   # no visible data
+            x=df_limited[time_col],
+            y=[None] * len(df_limited),   # no visible data
             xaxis='x2',
             showlegend=False,
             hoverinfo='skip'
@@ -307,8 +320,20 @@ def create_time_series_plot(df, time_col, data_cols, title, yaxis_title, dose_ra
     return fig
 
 
-def update_plot(fig, df, time_col, data_cols, dose_rate=None, num_ticks=10, ymin=None, ymax=None):
+def update_plot(fig, df, time_col, data_cols, dose_rate=None, num_ticks=10, ymin=None, ymax=None, max_points=None):
     """Update existing plot with new data."""
+    
+    # Limit data points if max_points is specified
+    if max_points is not None and len(df) > max_points:
+        # Calculate step size to get evenly distributed points including first and last
+        step = max(1, (len(df) - 1) // (max_points - 1))
+        # Take first point, then every step-th point, ensuring we include the last point
+        indices = list(range(0, len(df), step))
+        if indices[-1] != len(df) - 1:
+            indices.append(len(df) - 1)
+        df_limited = df.iloc[indices]
+    else:
+        df_limited = df
     
     # Clear existing traces
     fig.data = []
@@ -318,8 +343,8 @@ def update_plot(fig, df, time_col, data_cols, dose_rate=None, num_ticks=10, ymin
     
     for i, col in enumerate(data_cols):
         fig.add_trace(go.Scatter(
-            x=df[time_col],
-            y=df[col],
+            x=df_limited[time_col],
+            y=df_limited[col],
             mode='lines+markers',
             name=col,
             line=dict(color=colors[i % len(colors)], width=3),
@@ -327,7 +352,7 @@ def update_plot(fig, df, time_col, data_cols, dose_rate=None, num_ticks=10, ymin
         ))
 
     # Update ticks and layout
-    tmin, tmax = df[time_col].min(), df[time_col].max()
+    tmin, tmax = df_limited[time_col].min(), df_limited[time_col].max()
 
     time_ticks = [
         tmin + (tmax - tmin) * i / (num_ticks - 1)
@@ -349,8 +374,8 @@ def update_plot(fig, df, time_col, data_cols, dose_rate=None, num_ticks=10, ymin
         # Add/update TID axis
         if 'xaxis2' not in fig.layout:
             fig.add_trace(go.Scatter(
-                x=df[time_col],
-                y=[None] * len(df),
+                x=df_limited[time_col],
+                y=[None] * len(df_limited),
                 xaxis='x2',
                 showlegend=False,
                 hoverinfo='skip'
@@ -377,7 +402,7 @@ def save_plots_to_disk(plots, output_dir, base_name):
         fig.write_html(output_file)
         print(f"Saved: {output_file}")
 
-def create_live_plots(file_path, output_dir, dose_rate=None, num_ticks=10, port=8080):
+def create_live_plots(file_path, output_dir, dose_rate=None, num_ticks=10, port=8080, max_points=None):
     """Create and display live plots that update when CSV file changes."""
     
     print(f"Starting live monitoring of: {file_path}")
@@ -409,7 +434,8 @@ def create_live_plots(file_path, output_dir, dose_rate=None, num_ticks=10, port=
             df, time_col, current_cols,
             f'Current - {os.path.basename(file_path)} (LIVE)',
             'Current (A)', dose_rate, num_ticks,
-            Y_AXIS_LIMITS['current']['ymin'], Y_AXIS_LIMITS['current']['ymax']
+            Y_AXIS_LIMITS['current']['ymin'], Y_AXIS_LIMITS['current']['ymax'],
+            max_points
         )
 
     # Voltage plot
@@ -418,7 +444,8 @@ def create_live_plots(file_path, output_dir, dose_rate=None, num_ticks=10, port=
             df, time_col, voltage_cols,
             f'Voltage - {os.path.basename(file_path)} (LIVE)',
             'Voltage (V)', dose_rate, num_ticks,
-            Y_AXIS_LIMITS['voltage']['ymin'], Y_AXIS_LIMITS['voltage']['ymax']
+            Y_AXIS_LIMITS['voltage']['ymin'], Y_AXIS_LIMITS['voltage']['ymax'],
+            max_points
         )
 
     # Power-good plot
@@ -427,7 +454,8 @@ def create_live_plots(file_path, output_dir, dose_rate=None, num_ticks=10, port=
             df, time_col, pgood_cols,
             f'PowerGood - {os.path.basename(file_path)} (LIVE)',
             'Signal', dose_rate, num_ticks,
-            Y_AXIS_LIMITS['pgood']['ymin'], Y_AXIS_LIMITS['pgood']['ymax']
+            Y_AXIS_LIMITS['pgood']['ymin'], Y_AXIS_LIMITS['pgood']['ymax'],
+            max_points
         )
 
     # Function to update plots when file changes
@@ -446,16 +474,19 @@ def create_live_plots(file_path, output_dir, dose_rate=None, num_ticks=10, port=
         for plot_type, fig in plots.items():
             if plot_type == 'current':
                 update_plot(fig, new_df, time_col, current_cols, dose_rate, num_ticks,
-                          Y_AXIS_LIMITS['current']['ymin'], Y_AXIS_LIMITS['current']['ymax'])
+                          Y_AXIS_LIMITS['current']['ymin'], Y_AXIS_LIMITS['current']['ymax'],
+                          max_points)
             elif plot_type == 'voltage':
                 update_plot(fig, new_df, time_col, voltage_cols, dose_rate, num_ticks,
-                          Y_AXIS_LIMITS['voltage']['ymin'], Y_AXIS_LIMITS['voltage']['ymax'])
+                          Y_AXIS_LIMITS['voltage']['ymin'], Y_AXIS_LIMITS['voltage']['ymax'],
+                          max_points)
             elif plot_type == 'pgood':
                 update_plot(fig, new_df, time_col, pgood_cols, dose_rate, num_ticks,
-                          Y_AXIS_LIMITS['pgood']['ymin'], Y_AXIS_LIMITS['pgood']['ymax'])
+                          Y_AXIS_LIMITS['pgood']['ymin'], Y_AXIS_LIMITS['pgood']['ymax'],
+                          max_points)
 
     # Set up file watcher
-    event_handler = CSVFileHandler(on_file_updated)
+    event_handler = CSVFileHandler(on_file_updated, file_path)
     observer = Observer()
     observer.schedule(event_handler, os.path.dirname(file_path), recursive=False)
     observer.start()
@@ -525,13 +556,22 @@ def main():
 Examples:
     python plot_data_live.py ../data/log_2026-04-14_23-36-16_pirotest.csv --output-dir plots
     python plot_data_live.py ../data/log_2026-04-14_23-36-16_pirotest.csv --output-dir ../plots --dose-rate 5 --ticks 15
+    python plot_data_live.py -f ../data/log_2026-04-14_23-36-16_pirotest.csv --output-dir plots
+    python plot_data_live.py -f file1.csv file2.csv --max-points 1000 --output-dir ../plots
         """
     )
     
     parser.add_argument(
         'files',
-        nargs='+',
+        nargs='*',
         help='Data files to plot (CSV format)'
+    )
+    
+    parser.add_argument(
+        '-f', '--file',
+        nargs='+',
+        dest='files_flag',
+        help='Data file(s) to plot (CSV format). Multiple files can be specified after -f.'
     )
     
     parser.add_argument(
@@ -547,20 +587,33 @@ Examples:
     )
     
     parser.add_argument('--ticks', type=int, default=10, help='Number of ticks on axes (default: 10)')
+    parser.add_argument('--max-points', type=int, default=None, 
+                       help='Maximum number of data points to display (default: all points)')
     parser.add_argument('--port', type=int, default=8080, help='Port for web server (default: 8080)')
     
     args = parser.parse_args()
+    
+    # Combine files from positional arguments and -f flag
+    all_files = []
+    if args.files:
+        all_files.extend(args.files)
+    if args.files_flag:
+        all_files.extend(args.files_flag)
+    
+    # Ensure at least one file is provided
+    if not all_files:
+        parser.error("No files specified. Use positional arguments or -f/--file flag.")
     
     # Create output directory if it doesn't exist
     os.makedirs(args.output_dir, exist_ok=True)
     
     # Process each file
-    for file_path in args.files:
+    for file_path in all_files:
         if not os.path.exists(file_path):
             print(f"Warning: File {file_path} not found, skipping...")
             continue
         
-        create_live_plots(file_path, args.output_dir, args.dose_rate, args.ticks, args.port)
+        create_live_plots(file_path, args.output_dir, args.dose_rate, args.ticks, args.port, args.max_points)
 
 
 if __name__ == "__main__":

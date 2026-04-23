@@ -56,7 +56,8 @@ mb_calibration_factors = {
 mb_power_config = {
     0: {"atx_on": 0, "atx_off": 0, "ltm_on": 0, "ltm_off": 0},
     1: {"atx_on": 0, "atx_off": 0, "ltm_on": 0, "ltm_off": 0},
-    2: {"atx_on": 120.0, "atx_off": 5.0, "ltm_on": 30.0, "ltm_off": 5.0},
+    2: {"atx_on": 15.0, "atx_off": 5.0, "ltm_on": 3.0, "ltm_off": 1.0},
+    # 2: {"atx_on": 120.0, "atx_off": 5.0, "ltm_on": 30.0, "ltm_off": 5.0},
 }
 
 mb_poff_config = {
@@ -173,13 +174,13 @@ def update_ltm_power_state(current_time):
         if elapsed >= config["ltm_on"]:
             ltm_power_state = False
             ltm_timer_start = current_time
-            cprint("LTM power OFF")
+            # cprint("LTM power OFF")
     else:
         # LTM is currently OFF, check if it's time to turn ON
         if elapsed >= config["ltm_off"]:
             ltm_power_state = True
             ltm_timer_start = current_time
-            cprint("LTM power ON")
+            # cprint("LTM power ON")
     
     return ltm_power_state
 

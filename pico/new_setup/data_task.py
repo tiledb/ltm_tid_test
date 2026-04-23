@@ -38,7 +38,7 @@ def print_header():
 
     header = ""
     # Add power status columns at the beginning
-    header += "ATX_STATE\tLTM_STATE\t"
+    header += "ATX\tLTM\t"
     
     for i in range(shared.nr_of_channels):
         header += f"{shared.channel_label[i]}\t"

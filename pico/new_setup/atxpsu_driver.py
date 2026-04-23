@@ -64,7 +64,7 @@ class atxpsu:
         time.sleep_ms(self.delay_ms)
         
         polarity_status = " (inverted polarity)" if self.invert_polarity else ""
-        print(f"ATX Power Supply: ON{polarity_status}")
+        # print(f"ATX Power Supply: ON{polarity_status}")
         
         if self.power_good:
             # Wait for power good signal with timeout
@@ -90,7 +90,7 @@ class atxpsu:
         time.sleep_ms(self.delay_ms)
         
         polarity_status = " (inverted polarity)" if self.invert_polarity else ""
-        print(f"ATX Power Supply: OFF{polarity_status}")
+        # print(f"ATX Power Supply: OFF{polarity_status}")
         return True
 
     def toggle(self):
