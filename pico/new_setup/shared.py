@@ -55,8 +55,9 @@ mb_calibration_factors = {
 
 mb_power_config = {
     0: {"atx_on": 0, "atx_off": 0, "ltm_on": 0, "ltm_off": 0},
-    1: {"atx_on": 0, "atx_off": 0, "ltm_on": 0, "ltm_off": 0},
-    2: {"atx_on": 15.0, "atx_off": 5.0, "ltm_on": 3.0, "ltm_off": 1.0},
+    # 1: {"atx_on": 0, "atx_off": 0, "ltm_on": 0, "ltm_off": 0},
+    1: {"atx_on": 3600.0, "atx_off": 60.0, "ltm_on": 900.0, "ltm_off": 30.0},
+    2: {"atx_on": 3600.0, "atx_off": 60.0, "ltm_on": 900.0, "ltm_off": 30.0},
     # 2: {"atx_on": 120.0, "atx_off": 5.0, "ltm_on": 30.0, "ltm_off": 5.0},
 }
 

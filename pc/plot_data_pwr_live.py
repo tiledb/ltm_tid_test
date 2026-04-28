@@ -23,7 +23,7 @@ Y_AXIS_LIMITS = {
     'current': {'ymin': None, 'ymax': None},      # Current plots (A)
     'voltage': {'ymin': None, 'ymax': None},      # Voltage plots (V)
     'pgood': {'ymin': None, 'ymax': None},        # Power-good signals
-    'power': {'ymin': -0.5, 'ymax': 1.5}          # Power states (ON/OFF with margin)
+    'power': {'ymin': None, 'ymax': None}         # Power states - always uses full categorical range
 }
 
 # Example custom limits (uncomment and modify as needed):
@@ -124,85 +124,13 @@ class LivePlotHandler(SimpleHTTPRequestHandler):
         fig = self.plots_data[plot_type]
         html_content = fig.to_html(include_plotlyjs='cdn')
         
-        # Extract the actual div ID from Plotly's HTML output
-        div_id = 'plotly-div'  # Default fallback
-        
-        # Add smooth auto-refresh script with correct Plotly div ID
-        refresh_script = f"""
+        # Add simple auto-refresh script for reliable page reload
+        refresh_script = """
 <script>
-    let lastDataCount = 0;
-    let lastUpdateTime = 0;
-    
-    function updatePlotData() {{
-        console.log('Fetching plot data for {plot_type}...');
-        fetch('/plot-data/{plot_type}').then(response => response.json()).then(data => {{
-            console.log('Received plot data:', data);
-            if (data && data.traces) {{
-                // Find the actual Plotly div using multiple methods
-                let plotDiv = document.querySelector('[id^="plotly-html-"]');
-                if (!plotDiv) {{
-                    // Try alternative selectors
-                    plotDiv = document.querySelector('.plotly-graph-div');
-                }}
-                if (!plotDiv) {{
-                    // Try any div with plotly in the id
-                    plotDiv = document.querySelector('div[id*="plotly"]');
-                }}
-                if (!plotDiv) {{
-                    // Try the first div that contains a plotly element
-                    plotDiv = document.querySelector('div').querySelector('.js-plotly-plot');
-                }}
-                console.log('Found plot div:', plotDiv);
-                if (!plotDiv) {{
-                    console.error('Plotly div not found - tried multiple selectors');
-                    console.log('Available divs:', document.querySelectorAll('div'));
-                    return;
-                }}
-                
-                console.log('Updating', data.traces.length, 'traces');
-                // Update each trace with smooth animation
-                data.traces.forEach((traceData, index) => {{
-                    console.log(`Updating trace ${{index}}:`, traceData.name, 'with', traceData.x.length, 'points');
-                    if (traceData.x && traceData.y) {{
-                        Plotly.restyle(plotDiv, {{
-                            x: [traceData.x],
-                            y: [traceData.y]
-                        }}, [index]);
-                    }}
-                }});
-                
-                console.log('Plot updated smoothly');
-            }} else {{
-                console.log('No traces data received');
-            }}
-        }}).catch(err => console.log('Plot data update failed:', err));
-    }}
-    
-    function checkForUpdates() {{
-        console.log('Checking for updates...');
-        fetch('/data').then(response => response.json()).then(data => {{
-            console.log('Received data:', data);
-            const currentTime = data.timestamp;
-            const currentDataCount = data.data_count || 0;
-            
-            console.log(`Current: count=${{currentDataCount}}, time=${{currentTime}}`);
-            console.log(`Previous: count=${{lastDataCount}}, time=${{lastUpdateTime}}`);
-            
-            // Only update if data has actually changed
-            if (currentTime > lastUpdateTime || currentDataCount > lastDataCount) {{
-                console.log('Data changed, updating plot...');
-                updatePlotData();
-                lastUpdateTime = currentTime;
-                lastDataCount = currentDataCount;
-            }} else {{
-                console.log('No change detected');
-            }}
-        }}).catch(err => console.log('Update check failed:', err));
-    }}
-    
-    // Check for updates every 2 seconds
-    console.log('Starting update checks...');
-    setInterval(checkForUpdates, 2000);
+    // Simple and reliable page reload every 3 seconds
+    setInterval(function() {
+        window.location.reload();
+    }, 3000);
 </script>
 """
         
@@ -358,6 +286,22 @@ def parse_data_file(file_path):
         return None, None
 
 
+def get_dose_rate_with_unit(dose_rate, time_unit_label):
+    """Convert dose rate from Gy/s to appropriate unit based on time unit."""
+    if dose_rate is None:
+        return None, None
+    
+    conversion_factors = {
+        'seconds': (1.0, 'Gy/s'),
+        'minutes': (60.0, 'Gy/min'),
+        'hours': (3600.0, 'Gy/h'),
+        'days': (86400.0, 'Gy/day')
+    }
+    
+    factor, unit = conversion_factors.get(time_unit_label, (1.0, 'Gy/s'))
+    return dose_rate * factor, unit
+
+
 def categorize_columns(columns):
     current_cols = [col for col in columns if col.startswith('c_')]
     voltage_cols = [col for col in columns if col.startswith('v_')]
@@ -366,13 +310,13 @@ def categorize_columns(columns):
     return current_cols, voltage_cols, pgood_cols, power_cols
 
 
-def create_power_state_plot(df, time_col, power_cols, title, dose_rate=None, num_ticks=10, ymin=None, ymax=None, max_points=None):
+def create_power_state_plot(df, time_col, power_cols, title, dose_rate=None, num_ticks=10, ymin=None, ymax=None, max_points=None, time_factor=1.0, time_unit_label='seconds'):
     """Create a plot for ATX/LTM power states with categorical y-axis."""
     if not power_cols:
         return None
 
-    # Limit data points if max_points is specified
-    if max_points is not None and len(df) > max_points:
+    # Limit data points if max_points is specified (0 or None means all points)
+    if max_points is not None and max_points > 0 and len(df) > max_points:
         step = max(1, (len(df) - 1) // (max_points - 1))
         indices = list(range(0, len(df), step))
         if indices[-1] != len(df) - 1:
@@ -388,7 +332,7 @@ def create_power_state_plot(df, time_col, power_cols, title, dose_rate=None, num
     # Define categorical y-axis positions
     state_positions = {
         'atx_on': 3,
-        'atx_off': 2, 
+        'atx_off': 2,
         'ltm_on': 1,
         'ltm_off': 0
     }
@@ -403,9 +347,9 @@ def create_power_state_plot(df, time_col, power_cols, title, dose_rate=None, num
                     y_values.append(state_positions[f'{col.lower()}_on'])
                 else:  # OFF state
                     y_values.append(state_positions[f'{col.lower()}_off'])
-            
+
             fig.add_trace(go.Scatter(
-                x=df_limited[time_col],
+                x=df_limited[time_col] / time_factor,
                 y=y_values,
                 mode='lines+markers',
                 name=col,
@@ -415,31 +359,38 @@ def create_power_state_plot(df, time_col, power_cols, title, dose_rate=None, num
             ))
 
     # --- ticks ---
-    tmin, tmax = df_limited[time_col].min(), df_limited[time_col].max()
+    # Apply time unit conversion to ticks
+    tmin_raw, tmax_raw = df_limited[time_col].min(), df_limited[time_col].max()
+    tmin = tmin_raw / time_factor
+    tmax = tmax_raw / time_factor
 
     time_ticks = [
         tmin + (tmax - tmin) * i / (num_ticks - 1)
         for i in range(num_ticks)
     ]
+    time_ticks_raw = [t * time_factor for t in time_ticks]
 
     tid_labels = []
 
     if dose_rate is not None:
-        # Compute TID labels
-        tid_labels = [f"{t * dose_rate:.1f}" for t in time_ticks]
+        # Compute TID labels based on raw time values
+        tid_labels = [f"{t_raw * dose_rate:.1f}" for t_raw in time_ticks_raw]
 
-        # ✅ Dummy trace (required to force axis rendering)
+        # Dummy trace (required to force axis rendering)
         fig.add_trace(go.Scatter(
-            x=df_limited[time_col],
+            x=df_limited[time_col] / time_factor,
             y=[None] * len(df_limited),   # no visible data
             xaxis='x2',
             showlegend=False,
             hoverinfo='skip'
         ))
 
+        # Convert dose rate for display unit
+        dose_rate_display, dose_unit = get_dose_rate_with_unit(dose_rate, time_unit_label)
+        
         fig.update_layout(
             xaxis2=dict(
-                title=f"TID (rad) @ {dose_rate} rad/s",
+                title=dict(text=f"TID (Gy) @ {dose_rate_display:.3g} {dose_unit}", font=dict(size=26)),
                 overlaying='x',
                 side='top',
                 matches='x',
@@ -447,7 +398,9 @@ def create_power_state_plot(df, time_col, power_cols, title, dose_rate=None, num
                 tickmode='array',
                 tickvals=time_ticks,
                 ticktext=tid_labels,
+                tickfont=dict(size=22),
                 showline=True,
+                showgrid=False,
             )
         )
 
@@ -455,17 +408,17 @@ def create_power_state_plot(df, time_col, power_cols, title, dose_rate=None, num
     fig.update_layout(
         title=dict(text=title, font=dict(size=20)),
         xaxis=dict(
-            title=dict(text='Time (seconds)', font=dict(size=26)),
+            title=dict(text=f'Time ({time_unit_label})', font=dict(size=26)),
             tickmode='array',
             tickvals=time_ticks,
-            ticktext=[f"{t:.1f}" for t in time_ticks],
+            ticktext=[f"{t:.2f}" if time_unit_label in ['hours', 'days'] else f"{t:.1f}" for t in time_ticks],
             tickfont=dict(size=22),
             showgrid=True,
         ),
         yaxis=dict(
             title=dict(text='Power State', font=dict(size=26)),
             showgrid=True,
-            range=[-0.5, 3.5],
+            range=[-0.5, 3.5],  # Fixed range for all 4 categorical states
             tickmode='array',
             tickvals=[0, 1, 2, 3],
             ticktext=['ltm_off', 'ltm_on', 'atx_off', 'atx_on'],
@@ -485,12 +438,12 @@ def create_power_state_plot(df, time_col, power_cols, title, dose_rate=None, num
     return fig
 
 
-def create_time_series_plot(df, time_col, data_cols, title, yaxis_title, dose_rate=None, num_ticks=10, ymin=None, ymax=None, max_points=None):
+def create_time_series_plot(df, time_col, data_cols, title, yaxis_title, dose_rate=None, num_ticks=10, ymin=None, ymax=None, max_points=None, time_factor=1.0, time_unit_label='seconds'):
     if not data_cols:
         return None
 
-    # Limit data points if max_points is specified
-    if max_points is not None and len(df) > max_points:
+    # Limit data points if max_points is specified (0 or None means all points)
+    if max_points is not None and max_points > 0 and len(df) > max_points:
         # Calculate step size to get evenly distributed points including first and last
         step = max(1, (len(df) - 1) // (max_points - 1))
         # Take first point, then every step-th point, ensuring we include the last point
@@ -507,7 +460,7 @@ def create_time_series_plot(df, time_col, data_cols, title, yaxis_title, dose_ra
 
     for i, col in enumerate(data_cols):
         fig.add_trace(go.Scatter(
-            x=df_limited[time_col],
+            x=df_limited[time_col] / time_factor,
             y=df_limited[col],
             mode='lines+markers',
             name=col,
@@ -516,43 +469,48 @@ def create_time_series_plot(df, time_col, data_cols, title, yaxis_title, dose_ra
         ))
 
     # --- ticks ---
-    tmin, tmax = df_limited[time_col].min(), df_limited[time_col].max()
+    # Apply time unit conversion to ticks
+    tmin_raw, tmax_raw = df_limited[time_col].min(), df_limited[time_col].max()
+    tmin = tmin_raw / time_factor
+    tmax = tmax_raw / time_factor
 
     time_ticks = [
         tmin + (tmax - tmin) * i / (num_ticks - 1)
         for i in range(num_ticks)
     ]
+    time_ticks_raw = [t * time_factor for t in time_ticks]
 
     tid_labels = []
 
     if dose_rate is not None:
-        # Compute TID labels
-        tid_labels = [f"{t * dose_rate:.1f}" for t in time_ticks]
+        # Compute TID labels based on raw time values
+        tid_labels = [f"{t_raw * dose_rate:.1f}" for t_raw in time_ticks_raw]
 
-        # ✅ Dummy trace (required to force axis rendering)
+        # Dummy trace (required to force axis rendering)
         fig.add_trace(go.Scatter(
-            x=df_limited[time_col],
+            x=df_limited[time_col] / time_factor,
             y=[None] * len(df_limited),   # no visible data
             xaxis='x2',
             showlegend=False,
             hoverinfo='skip'
         ))
 
+        # Convert dose rate for display unit
+        dose_rate_display, dose_unit = get_dose_rate_with_unit(dose_rate, time_unit_label)
+        
         fig.update_layout(
             xaxis2=dict(
-                title=f"TID (rad) @ {dose_rate} rad/s",
+                title=dict(text=f"TID (Gy) @ {dose_rate_display:.3g} {dose_unit}", font=dict(size=26)),
                 overlaying='x',
                 side='top',
-
-                # 🔥 alignment fix
                 matches='x',
                 anchor='y',
-
                 tickmode='array',
                 tickvals=time_ticks,
                 ticktext=tid_labels,
-
+                tickfont=dict(size=22),
                 showline=True,
+                showgrid=False,
             )
         )
 
@@ -560,10 +518,10 @@ def create_time_series_plot(df, time_col, data_cols, title, yaxis_title, dose_ra
     fig.update_layout(
         title=dict(text=title, font=dict(size=20)),
         xaxis=dict(
-            title=dict(text='Time (seconds)', font=dict(size=26)),
+            title=dict(text=f'Time ({time_unit_label})', font=dict(size=26)),
             tickmode='array',
             tickvals=time_ticks,
-            ticktext=[f"{t:.1f}" for t in time_ticks],
+            ticktext=[f"{t:.2f}" if time_unit_label in ['hours', 'days'] else f"{t:.1f}" for t in time_ticks],
             tickfont=dict(size=22),
             showgrid=True,
         ),
@@ -587,11 +545,11 @@ def create_time_series_plot(df, time_col, data_cols, title, yaxis_title, dose_ra
     return fig
 
 
-def update_power_plot(fig, df, time_col, power_cols, dose_rate=None, num_ticks=10, ymin=None, ymax=None, max_points=None):
+def update_power_plot(fig, df, time_col, power_cols, dose_rate=None, num_ticks=10, ymin=None, ymax=None, max_points=None, time_factor=1.0, time_unit_label='seconds'):
     """Update existing power state plot with new data using categorical y-axis."""
-    
-    # Limit data points if max_points is specified
-    if max_points is not None and len(df) > max_points:
+
+    # Limit data points if max_points is specified (0 or None means all points)
+    if max_points is not None and max_points > 0 and len(df) > max_points:
         step = max(1, (len(df) - 1) // (max_points - 1))
         indices = list(range(0, len(df), step))
         if indices[-1] != len(df) - 1:
@@ -623,9 +581,9 @@ def update_power_plot(fig, df, time_col, power_cols, dose_rate=None, num_ticks=1
                     y_values.append(state_positions[f'{col.lower()}_on'])
                 else:  # OFF state
                     y_values.append(state_positions[f'{col.lower()}_off'])
-            
+
             fig.add_trace(go.Scatter(
-                x=df_limited[time_col],
+                x=df_limited[time_col] / time_factor,
                 y=y_values,
                 mode='lines+markers',
                 name=col,
@@ -635,58 +593,81 @@ def update_power_plot(fig, df, time_col, power_cols, dose_rate=None, num_ticks=1
             ))
 
     # Update ticks and layout
-    tmin, tmax = df_limited[time_col].min(), df_limited[time_col].max()
+    tmin_raw, tmax_raw = df_limited[time_col].min(), df_limited[time_col].max()
+    tmin = tmin_raw / time_factor
+    tmax = tmax_raw / time_factor
 
     time_ticks = [
         tmin + (tmax - tmin) * i / (num_ticks - 1)
         for i in range(num_ticks)
     ]
+    time_ticks_raw = [t * time_factor for t in time_ticks]
 
-    # Update x-axis ticks
-    fig.update_xaxes(tickmode='array', tickvals=time_ticks, 
-                  ticktext=[f"{t:.1f}" for t in time_ticks])
+    # Update x-axis ticks with time unit
+    fig.update_xaxes(
+        tickmode='array',
+        tickvals=time_ticks,
+        ticktext=[f"{t:.2f}" if time_unit_label in ['hours', 'days'] else f"{t:.1f}" for t in time_ticks],
+        title=dict(text=f'Time ({time_unit_label})', font=dict(size=26)),
+        tickfont=dict(size=22)
+    )
 
     # Update y-axis range and ticks for categorical states
-    y_range = [ymin, ymax] if ymin is not None and ymax is not None else [-0.5, 3.5]
+    # Always use full range to show all 4 states: ltm_off(0), ltm_on(1), atx_off(2), atx_on(3)
     fig.update_yaxes(
-        range=y_range, 
-        tickmode='array', 
-        tickvals=[0, 1, 2, 3], 
-        ticktext=['ltm_off', 'ltm_on', 'atx_off', 'atx_on']
+        range=[-0.5, 3.5],
+        tickmode='array',
+        tickvals=[0, 1, 2, 3],
+        ticktext=['ltm_off', 'ltm_on', 'atx_off', 'atx_on'],
+        tickfont=dict(size=22)
     )
 
     # Update TID axis if dose rate is provided
     if dose_rate is not None:
-        tid_labels = [f"{t * dose_rate:.1f}" for t in time_ticks]
-        
-        # Add/update TID axis
-        if 'xaxis2' not in fig.layout:
-            fig.add_trace(go.Scatter(
-                x=df_limited[time_col],
-                y=[None] * len(df_limited),
-                xaxis='x2',
-                showlegend=False,
-                hoverinfo='skip'
-            ))
-        
-        fig.update_layout(xaxis2=dict(
-            title=f"TID (rad) @ {dose_rate} rad/s",
-            overlaying='x',
-            side='top',
-            matches='x',
-            anchor='y',
-            tickmode='array',
-            tickvals=time_ticks,
-            ticktext=tid_labels,
-            showline=True,
+        tid_labels = [f"{t_raw * dose_rate:.1f}" for t_raw in time_ticks_raw]
+
+        # Always re-add the dummy trace for xaxis2 (it was cleared with fig.data = [])
+        fig.add_trace(go.Scatter(
+            x=df_limited[time_col] / time_factor,
+            y=[None] * len(df_limited),
+            xaxis='x2',
+            showlegend=False,
+            hoverinfo='skip'
         ))
 
+        # Convert dose rate for display unit
+        dose_rate_display, dose_unit = get_dose_rate_with_unit(dose_rate, time_unit_label)
 
-def update_plot(fig, df, time_col, data_cols, dose_rate=None, num_ticks=10, ymin=None, ymax=None, max_points=None):
+        fig.update_layout(
+            xaxis2=dict(
+                title=dict(text=f"TID (Gy) @ {dose_rate_display:.3g} {dose_unit}", font=dict(size=26)),
+                overlaying='x',
+                side='top',
+                matches='x',
+                anchor='y',
+                tickmode='array',
+                tickvals=time_ticks,
+                ticktext=tid_labels,
+                tickfont=dict(size=22),
+                showline=True,
+                showgrid=False,
+            ),
+            font=dict(size=28),
+            legend=dict(
+                orientation="h",
+                y=-0.15,
+                x=0.5,
+                xanchor="center",
+                font=dict(size=24)
+            )
+        )
+
+
+def update_plot(fig, df, time_col, data_cols, dose_rate=None, num_ticks=10, ymin=None, ymax=None, max_points=None, time_factor=1.0, time_unit_label='seconds'):
     """Update existing plot with new data."""
-    
-    # Limit data points if max_points is specified
-    if max_points is not None and len(df) > max_points:
+
+    # Limit data points if max_points is specified (0 or None means all points)
+    if max_points is not None and max_points > 0 and len(df) > max_points:
         # Calculate step size to get evenly distributed points including first and last
         step = max(1, (len(df) - 1) // (max_points - 1))
         # Take first point, then every step-th point, ensuring we include the last point
@@ -705,7 +686,7 @@ def update_plot(fig, df, time_col, data_cols, dose_rate=None, num_ticks=10, ymin
     
     for i, col in enumerate(data_cols):
         fig.add_trace(go.Scatter(
-            x=df_limited[time_col],
+            x=df_limited[time_col] / time_factor,
             y=df_limited[col],
             mode='lines+markers',
             name=col,
@@ -714,18 +695,22 @@ def update_plot(fig, df, time_col, data_cols, dose_rate=None, num_ticks=10, ymin
         ))
 
     # Update ticks and layout
-    tmin, tmax = df_limited[time_col].min(), df_limited[time_col].max()
+    tmin_raw, tmax_raw = df_limited[time_col].min(), df_limited[time_col].max()
+    tmin = tmin_raw / time_factor
+    tmax = tmax_raw / time_factor
 
     time_ticks = [
         tmin + (tmax - tmin) * i / (num_ticks - 1)
         for i in range(num_ticks)
     ]
+    time_ticks_raw = [t * time_factor for t in time_ticks]
 
-    # Update x-axis ticks and fonts
+    # Update x-axis ticks with time unit
     fig.update_xaxes(
-        tickmode='array', 
-        tickvals=time_ticks, 
-        ticktext=[f"{t:.1f}" for t in time_ticks],
+        tickmode='array',
+        tickvals=time_ticks,
+        ticktext=[f"{t:.2f}" if time_unit_label in ['hours', 'days'] else f"{t:.1f}" for t in time_ticks],
+        title=dict(text=f'Time ({time_unit_label})', font=dict(size=26)),
         tickfont=dict(size=22)
     )
 
@@ -740,21 +725,23 @@ def update_plot(fig, df, time_col, data_cols, dose_rate=None, num_ticks=10, ymin
 
     # Update TID axis if dose rate is provided
     if dose_rate is not None:
-        tid_labels = [f"{t * dose_rate:.1f}" for t in time_ticks]
-        
-        # Add/update TID axis
-        if 'xaxis2' not in fig.layout:
-            fig.add_trace(go.Scatter(
-                x=df_limited[time_col],
-                y=[None] * len(df_limited),
-                xaxis='x2',
-                showlegend=False,
-                hoverinfo='skip'
-            ))
-        
+        tid_labels = [f"{t_raw * dose_rate:.1f}" for t_raw in time_ticks_raw]
+
+        # Always re-add the dummy trace for xaxis2 (it was cleared with fig.data = [])
+        fig.add_trace(go.Scatter(
+            x=df_limited[time_col] / time_factor,
+            y=[None] * len(df_limited),
+            xaxis='x2',
+            showlegend=False,
+            hoverinfo='skip'
+        ))
+
+        # Convert dose rate for display unit
+        dose_rate_display, dose_unit = get_dose_rate_with_unit(dose_rate, time_unit_label)
+
         fig.update_layout(
             xaxis2=dict(
-                title=dict(text=f"TID (rad) @ {dose_rate} rad/s", font=dict(size=26)),
+                title=dict(text=f"TID (Gy) @ {dose_rate_display:.3g} {dose_unit}", font=dict(size=26)),
                 overlaying='x',
                 side='top',
                 matches='x',
@@ -764,6 +751,7 @@ def update_plot(fig, df, time_col, data_cols, dose_rate=None, num_ticks=10, ymin
                 ticktext=tid_labels,
                 tickfont=dict(size=22),
                 showline=True,
+                showgrid=False,
             ),
             font=dict(size=28),
             legend=dict(
@@ -781,15 +769,27 @@ def save_plots_to_disk(plots, output_dir, base_name):
     print(f"Saving plots to disk...")
     for plot_type, fig in plots.items():
         output_file = os.path.join(output_dir, f"{base_name}_{plot_type}_live.html")
-        fig.write_html(output_file)
+        # Ensure full HTML with all layout settings including secondary axes
+        fig.write_html(output_file, include_plotlyjs='cdn', full_html=True)
         print(f"Saved: {output_file}")
 
-def create_live_plots(file_path, output_dir, dose_rate=None, num_ticks=10, port=8080, max_points=None):
+def create_live_plots(file_path, output_dir, dose_rate=None, num_ticks=10, port=8080, max_points=None, time_unit='seconds'):
     """Create and display live plots that update when CSV file changes."""
     
+    # Time unit conversion factors
+    time_unit_factors = {
+        'seconds': 1.0,
+        'minutes': 60.0,
+        'hours': 3600.0,
+        'days': 86400.0
+    }
+    time_factor = time_unit_factors.get(time_unit, 1.0)
+    time_unit_label = time_unit
+    
     print(f"Starting live monitoring of: {file_path}")
+    print(f"Time unit: {time_unit}")
     if dose_rate is not None:
-        print(f"Using dose rate: {dose_rate} rad/s for TID calculation")
+        print(f"Using dose rate: {dose_rate} Gy/s for TID calculation")
     
     # Parse initial data
     df, time_col = parse_data_file(file_path)
@@ -818,7 +818,7 @@ def create_live_plots(file_path, output_dir, dose_rate=None, num_ticks=10, port=
             f'Current - {os.path.basename(file_path)} (LIVE)',
             'Current (A)', dose_rate, num_ticks,
             Y_AXIS_LIMITS['current']['ymin'], Y_AXIS_LIMITS['current']['ymax'],
-            max_points
+            max_points, time_factor, time_unit_label
         )
 
     # Voltage plot
@@ -828,7 +828,7 @@ def create_live_plots(file_path, output_dir, dose_rate=None, num_ticks=10, port=
             f'Voltage - {os.path.basename(file_path)} (LIVE)',
             'Voltage (V)', dose_rate, num_ticks,
             Y_AXIS_LIMITS['voltage']['ymin'], Y_AXIS_LIMITS['voltage']['ymax'],
-            max_points
+            max_points, time_factor, time_unit_label
         )
 
     # Power-good plot
@@ -838,7 +838,7 @@ def create_live_plots(file_path, output_dir, dose_rate=None, num_ticks=10, port=
             f'PowerGood - {os.path.basename(file_path)} (LIVE)',
             'Signal', dose_rate, num_ticks,
             Y_AXIS_LIMITS['pgood']['ymin'], Y_AXIS_LIMITS['pgood']['ymax'],
-            max_points
+            max_points, time_factor, time_unit_label
         )
 
     # Power state plot (ATX/LTM)
@@ -848,7 +848,7 @@ def create_live_plots(file_path, output_dir, dose_rate=None, num_ticks=10, port=
             f'Power States - {os.path.basename(file_path)} (LIVE)',
             dose_rate, num_ticks,
             Y_AXIS_LIMITS['power']['ymin'], Y_AXIS_LIMITS['power']['ymax'],
-            max_points
+            max_points, time_factor, time_unit_label
         )
 
     # Function to update plots when file changes
@@ -872,20 +872,20 @@ def create_live_plots(file_path, output_dir, dose_rate=None, num_ticks=10, port=
             if plot_type == 'current':
                 update_plot(fig, new_df, time_col, current_cols, dose_rate, num_ticks,
                           Y_AXIS_LIMITS['current']['ymin'], Y_AXIS_LIMITS['current']['ymax'],
-                          max_points)
+                          max_points, time_factor, time_unit_label)
             elif plot_type == 'voltage':
                 update_plot(fig, new_df, time_col, voltage_cols, dose_rate, num_ticks,
                           Y_AXIS_LIMITS['voltage']['ymin'], Y_AXIS_LIMITS['voltage']['ymax'],
-                          max_points)
+                          max_points, time_factor, time_unit_label)
             elif plot_type == 'pgood':
                 update_plot(fig, new_df, time_col, pgood_cols, dose_rate, num_ticks,
                           Y_AXIS_LIMITS['pgood']['ymin'], Y_AXIS_LIMITS['pgood']['ymax'],
-                          max_points)
+                          max_points, time_factor, time_unit_label)
             elif plot_type == 'power':
                 # Update power state plot with new function
                 update_power_plot(fig, new_df, time_col, power_cols, dose_rate, num_ticks,
                                 Y_AXIS_LIMITS['power']['ymin'], Y_AXIS_LIMITS['power']['ymax'],
-                                max_points)
+                                max_points, time_factor, time_unit_label)
 
     # Set up file watcher
     event_handler = CSVFileHandler(on_file_updated, file_path)
@@ -962,10 +962,10 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    python plot_data_live.py ../data/log_2026-04-14_23-36-16_pirotest.csv --output-dir plots
-    python plot_data_live.py ../data/log_2026-04-14_23-36-16_pirotest.csv --output-dir ../plots --dose-rate 5 --ticks 15
-    python plot_data_live.py -f ../data/log_2026-04-14_23-36-16_pirotest.csv --output-dir plots
-    python plot_data_live.py -f file1.csv file2.csv --max-points 1000 --output-dir ../plots
+    python plot_data_pwr_live.py ../data/log_2026-04-14_23-36-16_pirotest.csv --output-dir plots
+    python plot_data_pwr_live.py ../data/log_2026-04-14_23-36-16_pirotest.csv --output-dir ../plots --dose-rate 5 --ticks 15
+    python plot_data_pwr_live.py -f ../data/log_2026-04-14_23-36-16_pirotest.csv --output-dir plots --time-unit hours
+    python plot_data_pwr_live.py -f file1.csv file2.csv --max-points 500 --output-dir ../plots --time-unit minutes
         """
     )
     
@@ -991,13 +991,15 @@ Examples:
     parser.add_argument(
         '--dose-rate',
         type=float,
-        help='Dose rate in rad/s for Total Ionizing Dose (TID) calculation on second x-axis'
+        help='Dose rate in Gy/s for Total Ionizing Dose (TID) calculation on second x-axis'
     )
     
     parser.add_argument('--ticks', type=int, default=10, help='Number of ticks on axes (default: 10)')
-    parser.add_argument('--max-points', type=int, default=None, 
-                       help='Maximum number of data points to display (default: all points)')
+    parser.add_argument('--max-points', type=int, default=1000, 
+                       help='Maximum number of data points to display (default: 1000, use 0 for all points)')
     parser.add_argument('--port', type=int, default=8080, help='Port for web server (default: 8080)')
+    parser.add_argument('--time-unit', type=str, default='seconds', choices=['seconds', 'minutes', 'hours', 'days'],
+                       help='Time unit for x-axis (default: seconds)')
     
     args = parser.parse_args()
     
@@ -1021,7 +1023,7 @@ Examples:
             print(f"Warning: File {file_path} not found, skipping...")
             continue
         
-        create_live_plots(file_path, args.output_dir, args.dose_rate, args.ticks, args.port, args.max_points)
+        create_live_plots(file_path, args.output_dir, args.dose_rate, args.ticks, args.port, args.max_points, args.time_unit)
 
 
 if __name__ == "__main__":

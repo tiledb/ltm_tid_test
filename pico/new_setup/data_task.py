@@ -34,7 +34,8 @@ max_iterations = 10
 
 
 def print_header():
-    shared.nprint(shared.delimiter_line)
+    # shared.nprint(shared.delimiter_line)
+    print(shared.delimiter_line)
 
     header = ""
     # Add power status columns at the beginning
@@ -43,7 +44,8 @@ def print_header():
     for i in range(shared.nr_of_channels):
         header += f"{shared.channel_label[i]}\t"
 
-    shared.nprint(header)
+    # shared.nprint(header)
+    print(header)
 
 
 def run():
@@ -122,6 +124,6 @@ def run():
             for i in range(shared.nr_of_channels):
                 row += f"{local_v[i]:.2f}\t"
 
-        shared.nprint(row)
-
-        time.sleep(0.5)
+        # shared.nprint(row)
+        print(row)
+        time.sleep(8)
