@@ -131,7 +131,7 @@ def create_time_series_plot(df, time_col, data_cols, title, yaxis_title, dose_ra
         fig.add_trace(go.Scatter(
             x=df[time_col] / time_factor,
             y=df[col],
-            mode='lines+markers',
+            mode='lines',
             name=col,
             line=dict(color=colors[i % len(colors)], width=3),
             marker=dict(size=6),
@@ -205,7 +205,122 @@ def create_time_series_plot(df, time_col, data_cols, title, yaxis_title, dose_ra
             y=-0.15,
             x=0.5,
             xanchor="center",
-            font=dict(size=24)
+            font=dict(size=28)
+        ),
+        margin=dict(b=150)
+    )
+
+    return fig
+
+
+def create_voltage_plot_with_stats(df, time_col, voltage_cols, title, yaxis_title, dose_rate=None, num_ticks=10, ymin=None, ymax=None, time_unit_label='seconds'):
+    """Create a voltage plot with mean±std statistics in legend (when both ATX and LTM are ON)."""
+    if not voltage_cols:
+        return None
+
+    # Time unit conversion factors
+    time_factors = {
+        'seconds': 1.0,
+        'minutes': 60.0,
+        'hours': 3600.0,
+        'days': 86400.0
+    }
+    time_factor = time_factors.get(time_unit_label, 1.0)
+
+    fig = go.Figure()
+
+    colors = px.colors.qualitative.Set1
+
+    # Calculate statistics for voltages when both ATX and LTM are ON
+    stats = {}
+    if 'ATX' in df.columns and 'LTM' in df.columns:
+        both_on_mask = (df['ATX'] == 1) & (df['LTM'] == 1)
+        for col in voltage_cols:
+            if both_on_mask.any():
+                mean_val = df.loc[both_on_mask, col].mean()
+                std_val = df.loc[both_on_mask, col].std()
+                stats[col] = f"{mean_val:.3f}V±{std_val:.3f}V"
+            else:
+                stats[col] = "N/A"
+
+    for i, col in enumerate(voltage_cols):
+        stat_str = stats.get(col, "")
+        display_name = f"{col} ({stat_str})" if stat_str else col
+        fig.add_trace(go.Scatter(
+            x=df[time_col] / time_factor,
+            y=df[col],
+            mode='lines',
+            name=display_name,
+            line=dict(color=colors[i % len(colors)], width=3),
+            marker=dict(size=6),
+        ))
+
+    # --- ticks ---
+    tmin_raw, tmax_raw = df[time_col].min(), df[time_col].max()
+    tmin = tmin_raw / time_factor
+    tmax = tmax_raw / time_factor
+
+    time_ticks = [
+        tmin + (tmax - tmin) * i / (num_ticks - 1)
+        for i in range(num_ticks)
+    ]
+
+    tid_labels = []
+
+    if dose_rate is not None:
+        time_ticks_raw = [t * time_factor for t in time_ticks]
+        tid_labels = [f"{t_raw * dose_rate:.1f}" for t_raw in time_ticks_raw]
+
+        fig.add_trace(go.Scatter(
+            x=df[time_col] / time_factor,
+            y=[None] * len(df),
+            xaxis='x2',
+            showlegend=False,
+            hoverinfo='skip'
+        ))
+
+        dose_rate_display, dose_unit = get_dose_rate_with_unit(dose_rate, time_unit_label)
+
+        fig.update_layout(
+            xaxis2=dict(
+                title=dict(text=f"TID (Gy) @ {dose_rate_display:.3g} {dose_unit}", font=dict(size=26)),
+                overlaying='x',
+                side='top',
+                matches='x',
+                anchor='y',
+                tickmode='array',
+                tickvals=time_ticks,
+                ticktext=tid_labels,
+                tickfont=dict(size=22),
+                showline=True,
+                showgrid=False,
+            )
+        )
+
+    # --- base layout ---
+    fig.update_layout(
+        title=dict(text=title, font=dict(size=28)),
+        xaxis=dict(
+            title=dict(text=f'Time ({time_unit_label})', font=dict(size=26)),
+            tickmode='array',
+            tickvals=time_ticks,
+            ticktext=[f"{t:.2f}" if time_unit_label in ['hours', 'days'] else f"{t:.1f}" for t in time_ticks],
+            tickfont=dict(size=22),
+            showgrid=True,
+        ),
+        yaxis=dict(
+            title=dict(text=yaxis_title, font=dict(size=26)),
+            showgrid=True,
+            range=[ymin, ymax] if ymin is not None and ymax is not None else None,
+            tickfont=dict(size=22),
+        ),
+        font=dict(size=28),
+        legend=dict(
+            orientation="h",
+            y=-0.15,
+            x=0.5,
+            xanchor="center",
+            font=dict(size=28)
         ),
         margin=dict(b=150)
     )
@@ -253,10 +368,10 @@ def create_power_state_plot(df, time_col, power_cols, title, dose_rate=None, num
             fig.add_trace(go.Scatter(
                 x=df[time_col] / time_factor,
                 y=y_values,
-                mode='lines+markers',
+                mode='lines',
                 name=col,
                 line=dict(color=colors[0] if col == 'ATX' else colors[1], width=2),
-                marker=dict(size=4),
+                # marker=dict(size=4),
                 yaxis='y'
             ))
 
@@ -331,10 +446,184 @@ def create_power_state_plot(df, time_col, power_cols, title, dose_rate=None, num
             y=-0.15,
             x=0.5,
             xanchor="center",
-            font=dict(size=24)
+            font=dict(size=28)
         ),
         margin=dict(b=150)
     )
+
+    return fig
+
+
+def create_combined_current_power_plot(df, time_col, current_cols, power_cols, title, dose_rate=None, num_ticks=10, ymin=None, ymax=None, time_unit_label='seconds'):
+    """Create a combined plot with currents on top subplot and power states on bottom subplot."""
+    if not current_cols or not power_cols:
+        return None
+
+    from plotly.subplots import make_subplots
+
+    # Time unit conversion factors
+    time_factors = {
+        'seconds': 1.0,
+        'minutes': 60.0,
+        'hours': 3600.0,
+        'days': 86400.0
+    }
+    time_factor = time_factors.get(time_unit_label, 1.0)
+
+    # Create subplots: 2 rows, 1 column, separate x-axes, different row heights
+    fig = make_subplots(
+        rows=2, cols=1,
+        shared_xaxes=False,
+        row_heights=[0.8, 0.2],  # Top subplot 80%, bottom 20%
+        vertical_spacing=0.08
+    )
+
+    colors = px.colors.qualitative.Set1
+
+    # Calculate statistics for currents when both ATX and LTM are ON
+    stats = {}
+    if 'ATX' in df.columns and 'LTM' in df.columns:
+        both_on_mask = (df['ATX'] == 1) & (df['LTM'] == 1)
+        for col in current_cols:
+            if both_on_mask.any():
+                mean_val = df.loc[both_on_mask, col].mean()
+                std_val = df.loc[both_on_mask, col].std()
+                stats[col] = f"{mean_val:.3f}A±{std_val:.3f}A"
+            else:
+                stats[col] = "N/A"
+
+    # Add current traces to top subplot
+    for i, col in enumerate(current_cols):
+        stat_str = stats.get(col, "")
+        display_name = f"{col} ({stat_str})" if stat_str else col
+        fig.add_trace(go.Scatter(
+            x=df[time_col] / time_factor,
+            y=df[col],
+            mode='lines',
+            name=display_name,
+            line=dict(color=colors[i % len(colors)], width=3),
+            marker=dict(size=6),
+        ), row=1, col=1)
+
+    # Define power state positions
+    state_positions = {
+        'atx_on': 3,
+        'atx_off': 2,
+        'ltm_on': 1,
+        'ltm_off': 0
+    }
+
+    # Add power state traces to bottom subplot
+    power_colors = ['#9467bd', '#ff7f0e']  # Purple for ATX, Orange for LTM (distinct from current colors)
+    for i, col in enumerate(power_cols):
+        if col in df.columns:
+            y_values = []
+            for _, row in df.iterrows():
+                if row[col] == 1:  # ON state
+                    y_values.append(state_positions[f'{col.lower()}_on'])
+                else:  # OFF state
+                    y_values.append(state_positions[f'{col.lower()}_off'])
+
+            fig.add_trace(go.Scatter(
+                x=df[time_col] / time_factor,
+                y=y_values,
+                mode='lines',
+                name=f'{col} Power',
+                line=dict(color=power_colors[i % len(power_colors)], width=2),
+                marker=dict(size=4),
+            ), row=2, col=1)
+
+    # --- ticks ---
+    tmin_raw, tmax_raw = df[time_col].min(), df[time_col].max()
+    tmin = tmin_raw / time_factor
+    tmax = tmax_raw / time_factor
+
+    time_ticks = [
+        tmin + (tmax - tmin) * i / (num_ticks - 1)
+        for i in range(num_ticks)
+    ]
+
+    # --- layout ---
+    fig.update_layout(
+        title=dict(text=title, font=dict(size=28)),
+        font=dict(size=32),
+        legend=dict(
+            orientation="h",
+            y=-0.15,
+            x=0.5,
+            xanchor="center",
+            font=dict(size=28)
+        ),
+        margin=dict(b=150),
+        # xaxis: top subplot (ticks hidden but line visible for overlay to work)
+        xaxis=dict(
+            showticklabels=False,
+            showline=True,
+            tickmode='array',
+            tickvals=time_ticks,
+            matches='x2',  # Link domains so zoom/pan syncs
+            tickfont=dict(size=26)
+        ),
+        # xaxis2: bottom subplot (time axis)
+        xaxis2=dict(
+            title=dict(text=f'Time ({time_unit_label})', font=dict(size=30)),
+            tickmode='array',
+            tickvals=time_ticks,
+            ticktext=[f"{t:.2f}" if time_unit_label in ['hours', 'days'] else f"{t:.1f}" for t in time_ticks],
+            tickfont=dict(size=26),
+            showgrid=True,
+            showline=True,
+        )
+    )
+
+    # Update y-axes
+    fig.update_yaxes(
+        title=dict(text='Current (A)', font=dict(size=30)),
+        showgrid=True,
+        range=[ymin, ymax] if ymin is not None and ymax is not None else None,
+        tickfont=dict(size=26),
+        row=1, col=1
+    )
+
+    fig.update_yaxes(
+        title=dict(text='Power', font=dict(size=26)),
+        range=[-0.5, 3.5],
+        tickmode='array',
+        tickvals=[0, 1, 2, 3],
+        ticktext=['ltm_off', 'ltm_on', 'atx_off', 'atx_on'],
+        tickfont=dict(size=22),
+        showgrid=False,
+        row=2, col=1
+    )
+
+    # Add TID axis if dose rate specified
+    if dose_rate is not None:
+        time_ticks_raw = [t * time_factor for t in time_ticks]
+        tid_labels = [f"{t_raw * dose_rate:.1f}" for t_raw in time_ticks_raw]
+        dose_rate_display, dose_unit = get_dose_rate_with_unit(dose_rate, time_unit_label)
+
+        # Add dummy trace for xaxis3 (no row/col - it references main axes)
+        fig.add_trace(go.Scatter(
+            x=df[time_col] / time_factor,
+            y=[None] * len(df),
+            xaxis='x3',
+            showlegend=False,
+            hoverinfo='skip'
+        ))
+
+        fig.update_layout(
+            xaxis3=dict(
+                title=dict(text=f"TID (Gy) @ {dose_rate_display:.3g} {dose_unit}", font=dict(size=30)),
+                overlaying='x',
+                side='top',
+                tickmode='array',
+                tickvals=time_ticks,
+                ticktext=tid_labels,
+                tickfont=dict(size=26),
+                showline=True,
+                showgrid=False,
+            )
+        )
 
     return fig
 
@@ -359,30 +648,38 @@ def plot_file_data(file_path, output_dir, dose_rate=None, num_ticks=10, time_uni
     if current_cols:
         plots.append(('current', create_time_series_plot(
             df, time_col, current_cols,
-            f'Current - {os.path.basename(file_path)}',
+            'Current',
             'Current (A)', dose_rate, num_ticks,
             Y_AXIS_LIMITS['current']['ymin'], Y_AXIS_LIMITS['current']['ymax'], time_unit)))
 
     if voltage_cols:
-        plots.append(('voltage', create_time_series_plot(
+        plots.append(('voltage', create_voltage_plot_with_stats(
             df, time_col, voltage_cols,
-            f'Voltage - {os.path.basename(file_path)}',
+            'Voltage',
             'Voltage (V)', dose_rate, num_ticks,
             Y_AXIS_LIMITS['voltage']['ymin'], Y_AXIS_LIMITS['voltage']['ymax'], time_unit)))
 
     if pgood_cols:
         plots.append(('pgood', create_time_series_plot(
             df, time_col, pgood_cols,
-            f'PowerGood - {os.path.basename(file_path)}',
+            'PowerGood',
             'Signal', dose_rate, num_ticks,
             Y_AXIS_LIMITS['pgood']['ymin'], Y_AXIS_LIMITS['pgood']['ymax'], time_unit)))
 
     if power_cols:
         plots.append(('power', create_power_state_plot(
             df, time_col, power_cols,
-            f'Power States - {os.path.basename(file_path)}',
+            'Power States',
             dose_rate, num_ticks,
             Y_AXIS_LIMITS['power']['ymin'], Y_AXIS_LIMITS['power']['ymax'], time_unit)))
+
+    # Combined current + power plot
+    if current_cols and power_cols:
+        plots.append(('current_power', create_combined_current_power_plot(
+            df, time_col, current_cols, power_cols,
+            'Current & Power',
+            dose_rate, num_ticks,
+            Y_AXIS_LIMITS['current']['ymin'], Y_AXIS_LIMITS['current']['ymax'], time_unit)))
 
     base = os.path.splitext(os.path.basename(file_path))[0]
 
