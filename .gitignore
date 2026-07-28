@@ -1,3 +1,6 @@
 *.csv
 plots/*.html
 .pyenv
+log_*.html
+log_*.csv
+global_*.html

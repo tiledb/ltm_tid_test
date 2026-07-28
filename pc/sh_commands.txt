@@ -6,3 +6,7 @@ python3 pico_repl_com_v6.py --port /dev/ttyACM0 --lib-folder ../pico/new_setup/ 
 
 
 python plot_data_pwr_live.py ../data/log_2026-04-23_18-24-08_pirotest_mb0_mb2.csv --output-dir ../plots/ --ticks 20 --max-points 1000
+
+
+
+python3 pico_repl_com_v6.py --port /dev/ttyACM2 --lib-folder ../pico/new_setup/ --script ../pico/new_setup/ltm_tid_test.py --data-folder ../data --filename tid_cc60_batch_db_dc2524-3_mb1 --script-args "--watchdog-disable --psu-on --calibrated-adc --mb1"

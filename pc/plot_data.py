@@ -705,9 +705,35 @@ def main():
 
     os.makedirs(args.output_dir, exist_ok=True)
 
-    for f in args.files:
-        if os.path.exists(f):
-            plot_file_data(f, args.output_dir, args.dose_rate, args.ticks, args.time_unit, args.max_points)
+    for path in args.files:
+        if os.path.isfile(path):
+            # Single file
+            plot_file_data(
+                path,
+                args.output_dir,
+                args.dose_rate,
+                args.ticks,
+                args.time_unit,
+                args.max_points,
+            )
+
+        elif os.path.isdir(path):
+            # Process every CSV file in the folder
+            for file_name in sorted(os.listdir(path)):
+                if file_name.lower().endswith(".csv"):
+                    file_path = os.path.join(path, file_name)
+                    print(f"Processing: {file_path}")
+                    plot_file_data(
+                        file_path,
+                        args.output_dir,
+                        args.dose_rate,
+                        args.ticks,
+                        args.time_unit,
+                        args.max_points,
+                    )
+
+        else:
+            print(f"Skipping '{path}': not found.")
 
 
 if __name__ == "__main__":
